@@ -16,6 +16,7 @@ class SuppliersPage(BasePage):
         self._edit_id = None
         self._all_rows = []
         self._metric_vars = []
+        self._visible_supplier_names = []
 
         form = tk.Frame(self, bg=WHITE, bd=1, relief="solid")
         form.pack(fill="x", padx=14, pady=10)
@@ -70,19 +71,23 @@ class SuppliersPage(BasePage):
         tk.Label(panel,
                  text="Enter distance and price index, then recommend the lowest combined score.",
                  font=FONT_SMALL, bg=WHITE, fg=TEXT_GRAY).pack(anchor="w", padx=8, pady=(6, 2))
+        
+        # SuppliersPage = Dijkstra recommendation integration
+        tk.Label(panel, text="Recommendation Algorithm: Dijkstra’s Algorithm",
+                 font=FONT_SMALL, bg=WHITE, fg=SIDEBAR).pack(anchor="w", padx=8, pady=(0, 4))
 
         self._metric_frame = tk.Frame(panel, bg=WHITE)
         self._metric_frame.pack(fill="x", padx=8, pady=4)
 
         ctrl = tk.Frame(panel, bg=WHITE)
         ctrl.pack(fill="x", padx=8, pady=4)
-        self.red_btn(ctrl, "Recommend Supplier", self._recommend_supplier).pack(side="left", padx=4)
+        self.red_btn(ctrl, "Run Dijkstra", self._recommend_supplier).pack(side="left", padx=4)
         self._lbl_recommend = tk.Label(ctrl, text="",
                                        font=FONT_SMALL, bg=WHITE, fg=SIDEBAR)
         self._lbl_recommend.pack(side="left", padx=8)
 
-        rank_cols = ("Rank", "Supplier", "Distance km", "Price Index", "Score")
-        rank_widths = (60, 200, 100, 100, 90)
+        rank_cols = ("Supplier Name", "Distance", "Price Index", "Score", "Verdict")
+        rank_widths = (200, 100, 100, 90, 150)
         self._recommend_tree = self.make_table(panel, rank_cols, rank_widths, height=6)
 
     def _reload_metric_inputs(self):
@@ -117,8 +122,11 @@ class SuppliersPage(BasePage):
             messagebox.showwarning("No Suppliers", "Add suppliers first.")
             return
 
+        visible_names = set(self._visible_supplier_names)
         suppliers = []
         for row in self._metric_vars:
+            if visible_names and row["supplier_name"] not in visible_names:
+                continue
             try:
                 distance = float(row["distance"].get())
                 price_index = float(row["price_index"].get())
@@ -134,6 +142,10 @@ class SuppliersPage(BasePage):
                 "price_index": price_index,
             })
 
+        if not suppliers:
+            messagebox.showwarning("No Suppliers", "No visible suppliers to rank.")
+            return
+
         start = time.perf_counter()
         # SuppliersPage = Dijkstra supplier ranking by combined distance + price score.
         graph = SupplierGraph.build_from_suppliers(suppliers)
@@ -144,22 +156,25 @@ class SuppliersPage(BasePage):
         self._recommend_tree.delete(*self._recommend_tree.get_children())
         for rank, (name, score) in enumerate(ranked, 1):
             meta = lookup[name]
-            vals = (rank, name, f"{meta['distance_km']:.1f}",
-                    f"{meta['price_index']:.1f}", f"{score:.3f}")
+            verdict = "Best Supplier" if rank == 1 else "Candidate"
+            vals = (name, f"{meta['distance_km']:.1f} km",
+                    f"{meta['price_index']:.1f}", f"{score:.3f}", verdict)
             self._recommend_tree.insert("", "end", values=vals,
                                         tags=("odd" if rank % 2 else "even",))
 
         if ranked:
             self._lbl_recommend.config(
-                text=f"Recommended: {ranked[0][0]} - Dijkstra {elapsed:.1f} µs")
+                text=f"Best supplier: {ranked[0][0]} | Score: {ranked[0][1]:.3f} | Verdict: recommended ({elapsed:.1f} µs)")
 
     def _apply_search(self):
         q = self._v_search.get().strip().lower()
         self._tree.delete(*self._tree.get_children())
+        self._visible_supplier_names = []
         for i, r in enumerate(self._all_rows):
             if q in r["supplier_name"].lower() \
             or q in (r["contact_no"] or "").lower() \
             or q in (r["address"] or "").lower():
+                self._visible_supplier_names.append(r["supplier_name"])
                 self._tree.insert("", "end", tags=("odd" if i % 2 else "even",),
                                   values=(r["supplier_id"], r["supplier_name"],
                                           r["contact_no"], r["address"],
